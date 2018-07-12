@@ -8,11 +8,51 @@ output: html_document
 ```{r setup, include=FALSE}
 library(rwebppl)
 library(tidyverse)
+theme_set(theme_bw() + 
+            theme(strip.background = element_blank(), 
+                  panel.grid = element_blank())) # nice theme with limited extras
 ```
 
+
+Make input data. 
+
+```{r}
+# speaker(allReferents.nonexistence, allContexts.nonexistence[0], "apples?").score("no apples")
+df <- as_tibble(expand.grid(referent = c("alternative", "nonexistence"),
+                            context = c("alternative", "nonexistence"), 
+                            n_with_apples = 0:3,
+                            QUD = c("apples?", "which fruit?"), 
+                            utterance = c("apples", "no apples")))
+```
 
 
 ```{r}
-webppl(program_file = "model.wppl")
+df$prob <- webppl(data = df, 
+                  data_var = "df",
+                  program_file = "model.wppl.js")
+
+df$surprisal <- -log(df$prob)
 ```
+
+Replicate previous plot. 
+
+```{r}
+# filter(df, 
+#        (context == "alternative" & QUD == "which fruit?") |
+#          (context == "nonexistence" & QUD == "apples?")
+ggplot(df, 
+       aes(x = n_with_apples, y = surprisal, col = utterance, lty = QUD)) + 
+  facet_grid(context ~ referent) + 
+  geom_line() + 
+  ggthemes::scale_color_solarized()
+```
+
+```{r}
+knitr::include_graphics("images/ming_data.png")
+```
+```{r}
+knitr::include_graphics("images/nf-2014-e2.png")
+```
+
+
 
