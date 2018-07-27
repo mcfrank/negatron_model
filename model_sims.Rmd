@@ -22,9 +22,11 @@ df <- as_tibble(expand.grid(referent = c("alternative", "nonexistence"),
                             context = c("alternative", "nonexistence"), 
                             n_with_apples = 0:3,
                             QUD = c("apples?", "which fruit?"), 
-                            utterance = c("apples", "no apples")))
+                            utterance = c("apples", "no apples"),
+                            alpha = c(1,3,5,7,9),
+                            cost = c(1,3,5,7,9)))
 ```
-
+ 
 
 ```{r}
 df$prob <- webppl(data = df, 
@@ -40,7 +42,8 @@ Replicate previous plot.
 # filter(df, 
 #        (context == "alternative" & QUD == "which fruit?") |
 #          (context == "nonexistence" & QUD == "apples?")
-ggplot(df, 
+
+ggplot(filter(df, alpha == 1, cost == 1), 
        aes(x = n_with_apples, y = surprisal, col = utterance, lty = QUD)) + 
   facet_grid(context ~ referent) + 
   geom_line() + 

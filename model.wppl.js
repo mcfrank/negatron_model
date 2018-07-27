@@ -41,18 +41,22 @@ var utterances = [
   "red shirt", "blue shirt", "green shirt", "yellow shirt"
 ]
 
-var cost_per_word = 1; // cost of saying 2 words
-var cost_neg = 0; // cost of saying negation (above and beyond cost of 2nd word)
 
-var uttProbs = map(function(u) {
-  var n_words = u.split(' ').length
-  var uttCost = (n_words - 1)*cost_per_word + isNegation(u)*cost_neg
-  return Math.exp(-uttCost)
-}, utterances)
 
-var utterancePrior = Categorical({
-  vs: utterances,
-  ps: uttProbs
+var utterancePrior = cache(function(cost_per_word){
+  // var cost_per_word = 1; // cost of saying 2 words
+  var cost_neg = 0; // cost of saying negation (above and beyond cost of 2nd word)
+  
+  var uttProbs = map(function(u) {
+    var n_words = u.split(' ').length
+    var uttCost = (n_words - 1)*cost_per_word + isNegation(u)*cost_neg
+    return Math.exp(-uttCost)
+  }, utterances)
+
+  return Categorical({
+    vs: utterances,
+    ps: uttProbs
+  })
 })
 
 // prior over world states
@@ -92,17 +96,17 @@ var literalListener = function(utterance, qud, allObjects){
 }
 
 // set speaker optimality
-var alpha = 1
+ // var alpha = 1
 
 // pragmatic speaker
-var speaker = function(obj, context, qud){
+var speaker = function(obj, context, qud, alph, cost){
   Infer({model: function(){
     var allObjects = context.concat(obj) // to make the listener's state prior
-    var utterance = sample(utterancePrior)
+    var utterance = sample(utterancePrior(cost))
     var L0 = literalListener(utterance, qud, allObjects)
     var qudFn = qudFns[qud]
     condition(flip(meaning(utterance, obj))) // strongly prefer to say true things
-    factor(alpha * L0.score(qudFn(obj))) // informativity
+    factor(alph * L0.score(qudFn(obj))) // informativity
     return utterance
   }})
 }
@@ -118,10 +122,11 @@ var allResults = mapIndexed(
     
     var context = df_row.context == "nonexistence" ? allContexts.nonexistence : allContexts.alternative
   
-  
-    var S1 = speaker(referent, context[df_row.n_with_apples], df_row.QUD)
+        var S1 = speaker(referent, context[df_row.n_with_apples], df_row.QUD, df_row.alpha, df_row.cost)
     
     return Math.exp(S1.score(df_row.utterance))
+
+
   }, df
 )
 
