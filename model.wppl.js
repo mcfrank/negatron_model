@@ -1,3 +1,29 @@
+
+// adapted from mhtess/webppl-oed
+// If pProp is specified, then Q is scored with that property of P support
+// elements (necessary if model posterior contains extra information)
+var KL = function(P, Q, pProp) {
+    var statesP = P.support();
+    var statesQ = Q.support();
+
+    // TODO: assert that states1 = states2
+    return sum(map(
+        function(state) {
+            var scoreP = P.score(state);
+            var scoreQ = Q.score((!!pProp) ? state[pProp] : state);
+            var probP = Math.exp(scoreP);
+            // P(i) * log[ P(i) / Q(i) ] =  P(i) * [log(P(i) - log(Q(i)))]
+            // Let \lim_{x \to 0} x \log(x) = 0.
+            // Otherwise, 0 * -Infinity = NaN.
+            if (probP === 0) {
+                return 0;
+            }
+            return probP * (scoreP - scoreQ);
+        },
+        statesP));
+}
+
+
 var shirt_colors = ["red shirt", "blue shirt", "green shirt", "yellow shirt"]
 
 // make a single context with some known number of people with apples (and the rest having the alternative fruit)
@@ -84,13 +110,29 @@ var qudFns = {
   "which referent?": function(obj){ return obj }
 }
 
+
+// uniform prior on QUDs (those listed in qudFns)
+var qudPrior = Categorical({
+  vs: _.keys(qudFns),
+  ps: repeat(_.keys(qudFns).length, function(){1})
+})
+
+
 // literal listener
-var literalListener = function(utterance, qud, allObjects){
+var literalListener = function(utterance, qud, L0_prior){
   Infer({model: function(){
-    var obj = objectPrior(allObjects);
+    var obj = sample(L0_prior);
     var qudFn = qudFns[qud]
     condition(flip(meaning(utterance, obj)))
     //     return [obj, qudFn(obj)]
+    return qudFn(obj)
+  }})
+}
+
+var projectPriorOntoQud = function(qud, L0_prior){
+  Infer({model: function(){
+    var obj = sample(L0_prior);
+    var qudFn = qudFns[qud]
     return qudFn(obj)
   }})
 }
@@ -99,15 +141,35 @@ var literalListener = function(utterance, qud, allObjects){
  // var alpha = 1
 
 // pragmatic speaker
-var speaker = function(obj, context, qud, alph, cost){
+// var speaker = function(obj, context, qud, alph, cost){
+var speaker = function(obj, context, alph, cost){
   Infer({model: function(){
     var allObjects = context.concat(obj) // to make the listener's state prior
+    var L0_prior = Categorical({vs: allObjects, ps: repeat(allObjects.length, function(){1})})
+
+    var qudBeliefs = Infer({
+      model: function(){
+       var qud = sample(qudPrior)
+       var expectedInfoGain = expectation(Infer({model: function(){
+          var utterance = sample(utterancePrior(cost))
+          var L0_posterior = literalListener(utterance, qud, L0_prior)
+          var informationGain = KL(L0_posterior, projectPriorOntoQud(qud, L0_prior))
+          return informationGain
+       }}))
+       factor(Math.log(expectedInfoGain)) // i think log is the right thing to do here...
+       // factor(expectedInfoGain)
+       return qud
+      }
+    })
+
+    var qud = sample(qudBeliefs)
     var utterance = sample(utterancePrior(cost))
-    var L0 = literalListener(utterance, qud, allObjects)
+    var L0 = literalListener(utterance, qud, L0_prior)
     var qudFn = qudFns[qud]
     condition(flip(meaning(utterance, obj))) // strongly prefer to say true things
     factor(alph * L0.score(qudFn(obj))) // informativity
     return utterance
+    // return {utterance, qud} // could return joint distribution over utterances and quds
   }})
 }
 
@@ -122,14 +184,36 @@ var allResults = mapIndexed(
     
     var context = df_row.context == "nonexistence" ? allContexts.nonexistence : allContexts.alternative
   
-        var S1 = speaker(referent, context[df_row.n_with_apples], df_row.QUD, df_row.alpha, df_row.cost)
-    
-    return Math.exp(S1.score(df_row.utterance))
+    // var S1 = speaker(referent, context[df_row.n_with_apples], df_row.QUD, df_row.alpha, df_row.cost)
+    var S1 = speaker(referent, context[df_row.n_with_apples], df_row.alpha, df_row.cost)
 
+    return Math.exp(S1.score(df_row.utterance))
+    // S1
 
   }, df
 )
 
-// return arrays
 allResults
+
+
+// var df_row  = {
+//     "referent": "nonexistence",
+//     "context": "alternative",
+//     "n_with_apples": 0,
+//     "QUD": "which fruit?",
+//     "utterance": "no apples",
+//     "alpha": 9,
+//     "cost": 9
+//   }
+
+// // df_row
+// var referent = df_row.referent == "nonexistence" ? 
+// (df_row.utterance == "apples" ? allReferents.nonexistence_pos : allReferents.nonexistence_neg) : 
+// (df_row.utterance == "apples" ? allReferents.alternative_pos : allReferents.alternative_neg)
+
+// var context = df_row.context == "nonexistence" ? allContexts.nonexistence : allContexts.alternative
+
+// var S1 = speaker(referent, context[df_row.n_with_apples], df_row.QUD, df_row.alpha, df_row.cost)
+// S1
+// return arrays
 
