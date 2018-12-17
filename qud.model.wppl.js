@@ -62,25 +62,29 @@ var isNegation = function(utt){
 };
 
 // set of utterances
-var utterances = [
-  "apples", "oranges", "no apples", "no oranges",
-  "red shirt", "blue shirt", "green shirt", "yellow shirt"
+var utterances_noshirts = [
+  "apples", "oranges", "no apples", "no oranges"
+]
+
+var utterances_withshirts = [
+  "apples", "oranges", "no apples", "no oranges","red shirt", "blue shirt", "green shirt", "yellow shirt"
 ]
 
 
-
-var utterancePrior = cache(function(cost_per_word){
+var utterancePrior = cache(function(cost_per_word, with_shirt_utts){
   // var cost_per_word = 1; // cost of saying 2 words
   var cost_neg = 0; // cost of saying negation (above and beyond cost of 2nd word)
+  var utts = with_shirt_utts ? utterances_withshirts : utterances_noshirts
+  // display(with_shirt_utts + " " + utts)
   
   var uttProbs = map(function(u) {
     var n_words = u.split(' ').length
     var uttCost = (n_words - 1)*cost_per_word + isNegation(u)*cost_neg
     return Math.exp(-uttCost)
-  }, utterances)
+  }, utts)
 
   return Categorical({
-    vs: utterances,
+    vs: utts,
     ps: uttProbs
   })
 })
@@ -106,7 +110,7 @@ var meaning = function(utterance, obj){
 
 var qudFns = {
   "apples?": function(obj){ return obj.fruit == "apples"},
-  "which fruit?": function(obj){ return obj.fruit },
+   "which fruit?": function(obj){ return obj.fruit },
   "which referent?": function(obj){ return obj }
 }
 
@@ -142,45 +146,24 @@ var projectPriorOntoQud = function(qud, L0_prior){
 
 // pragmatic speaker
 // var speaker = function(obj, context, qud, alph, cost){
-var speaker = function(obj, context, alph, cost, consider_referent){
-  Infer({model: function(){
+var qudInference = function(obj, context, cost, with_shirt_utts, consider_referent){
+    var allObjects = consider_referent ? context.concat(obj) : context // to make the listener's state prior
     
-    var objectsForQUD = consider_referent ? context.concat(obj) : context 
-    var allObjects = context.concat(obj) // to make the listener's state prior
-    
-    var L0_prior_forQUD = Categorical({vs: objectsForQUD, 
-        ps: repeat(objectsForQUD.length, function(){1})})
-    // display(JSON.stringify(L0_prior))
-    var qudBeliefs = Infer({
-      model: function(){
-       var qud = sample(qudPrior)
-       var expectedInfoGain = expectation(Infer({model: function(){
-          var utterance = sample(utterancePrior(cost))
-          var L0_posterior = literalListener(utterance, qud, L0_prior_forQUD)
-          var informationGain = KL(L0_posterior, projectPriorOntoQud(qud, L0_prior_forQUD))
-          return informationGain
-       }}))
-       // display(qud +" " + expectedInfoGain)
-       factor(Math.log(expectedInfoGain)) // i think log is the right thing to do here...
-       // factor(expectedInfoGain)
-       return qud
-      }, method: "enumerate"
-    })
-
-    var qud = sample(qudBeliefs)
-    var utterance = sample(utterancePrior(cost))
-    
-    var L0_prior_forQUD = Categorical({vs: allObjects, 
+    var L0_prior = Categorical({vs: allObjects, 
         ps: repeat(allObjects.length, function(){1})})
+    // display(JSON.stringify(L0_prior))
     
-    var L0 = literalListener(utterance, qud, L0_prior_forQUD)
-    var qudFn = qudFns[qud]
-    condition(flip(meaning(utterance, obj))) // strongly prefer to say true things
-    // display(utterance + " " + L0.score(qudFn(obj)))
-    factor(alph * L0.score(qudFn(obj))) // informativity
-    // return utterance
-    return {utterance, qud} // could return joint distribution over utterances and quds
-  }, method: "enumerate"})
+    
+    _.fromPairs(map(function(qud){
+        var expectedInfoGain = expectation(Infer({model: function(){
+            var utterance = sample(utterancePrior(cost, with_shirt_utts))
+            var L0_posterior = literalListener(utterance, qud, L0_prior)
+            var informationGain = KL(L0_posterior, projectPriorOntoQud(qud, L0_prior))
+            return informationGain
+        }}))
+       return [qud, expectedInfoGain]
+    }, _.keys(qudFns)))
+  
 }
 
 //display(allContexts.nonexistence[0])
@@ -188,7 +171,7 @@ var speaker = function(obj, context, alph, cost, consider_referent){
 // now iterate through incoming data and give outputs
 var allResults = mapIndexed(
   function(i, df_row) {
-   // display(JSON.stringify(df_row))
+   display(JSON.stringify(df_row))
     var referent = df_row.referent == "nonexistence" ? 
     (df_row.utterance == "apples" ? allReferents.nonexistence_pos : allReferents.nonexistence_neg) : 
     (df_row.utterance == "apples" ? allReferents.alternative_pos : allReferents.alternative_neg)
@@ -196,16 +179,10 @@ var allResults = mapIndexed(
     var context = df_row.context == "nonexistence" ? allContexts.nonexistence : allContexts.alternative
   
     // var S1 = speaker(referent, context[df_row.n_with_apples], df_row.QUD, df_row.alpha, df_row.cost)
-    var S1 = speaker(referent, context[df_row.n_with_apples], df_row.alpha, df_row.cost, df_row.consider_referent)
-    
-    var S1utt = marginalize(S1, "utterance")
-    var S1qud = marginalize(S1, "qud")
-    return extend(df_row, {
-      uttProb: Math.exp(S1utt.score(df_row.utterance)), 
-      applesQudProb: Math.exp(S1qud.score("apples?"))
-    })
-    // S1
-
+    // display(df_row.with_shirt_utts)
+    var S1 = qudInference(referent, context[df_row.n_with_apples], df_row.cost,
+    df_row.with_shirt_utts, df_row.consider_referent)
+    return extend(df_row, S1)
   }, df
 )
 
