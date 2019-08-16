@@ -63,7 +63,7 @@ var isNegation = function(utt){
 
 // set of utterances
 var utterances = [
-  "apples", "oranges", "no apples", "no oranges",
+  "apples", "oranges", "no apples", "no oranges", "nothing", 
   "red shirt", "blue shirt", "green shirt", "yellow shirt"
 ]
 
@@ -93,15 +93,19 @@ var objectPrior = function(objects) {
 
 // meaning function to interpret the utterances
 var meaning = function(utterance, obj){
-  // if utt has negation, split off the positive aspect of utterance
-  var u = isNegation(utterance) ? utterance.split("no ")[1] : utterance;
-  // check to see if utt is about shirt or fruit
-  var referent_property = u.indexOf("shirt") > - 1 ? "shirt" : "fruit"
-  // does object have property?
-  var obj_property_val = obj[referent_property] == u? 1 : -1
-  // if there's negation, multiply truth value by -1
-  var neg_val = isNegation(utterance) ? -1 : 1
-  return ((neg_val * obj_property_val) == 1) ? 0.999 : 0.001
+  if (utterance == "nothing") {
+    return obj["fruit"] == false ? 0.999 : 0.001
+  } else {
+    // if utt has negation, split off the positive aspect of utterance
+    var u = isNegation(utterance) ? utterance.split("no ")[1] : utterance;
+    // check to see if utt is about shirt or fruit
+    var referent_property = u.indexOf("shirt") > - 1 ? "shirt" : "fruit"
+    // does object have property?
+    var obj_property_val = obj[referent_property] == u? 1 : -1
+    // if there's negation, multiply truth value by -1
+    var neg_val = isNegation(utterance) ? -1 : 1
+    return ((neg_val * obj_property_val) == 1) ? 0.999 : 0.001
+  }
 }
 
 var qudFns = {
